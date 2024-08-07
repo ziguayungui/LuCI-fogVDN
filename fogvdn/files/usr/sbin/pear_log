@@ -1,0 +1,166 @@
+#!/bin/bash
+
+LOG_FILE="pear_monitor.log"
+END_TIME=""
+
+# 将结束时间转换为 Unix 时间戳
+time_to_timestamp() {
+    if [ -z "$END_TIME" ]; then
+        END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+    fi
+
+    # 检查输入时间格式（YYYY-MM-DD HH:MM:SS）
+    if ! [[ $END_TIME =~ ^[2][0][0-9][0-9]-[0-1][0-9]-[0-3][0-9]\ [0-2][0-9]:[0-5][0-9]:[0-5][0-9]$ ]]; then
+        exit 1
+    fi
+
+    END_TIMESTAMP=$(date -d "$END_TIME" '+%s')
+
+    # 检查日期转换是否成功
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
+    echo $END_TIMESTAMP
+}
+
+# 获取所有日志文件的路径
+get_log_files() {
+    LOG_PATHS="$(jq -r '.storage[]' /etc/pear/pear_monitor/config.json) /"
+    for LOG_PATH in $LOG_PATHS; do
+        #LOG_FILES="${LOG_FILES} $(find ${LOG_PATH}/.pear/var/log/pear/ -name ${LOG_FILE} 2>/dev/null)"
+        if [ -f "$LOG_PATH/.pear/var/log/pear/$LOG_FILE" ]; then
+            LOG_FILES="${LOG_FILES} $LOG_PATH/.pear/var/log/pear/$LOG_FILE"
+        fi
+    done
+    if [ -z "$LOG_FILES" ]; then
+        exit 1
+    else
+        LOG_FILES=${LOG_FILES:1}
+        echo $LOG_FILES
+    fi
+}
+
+# 在所有日志文件中搜索最后一条符合条件的记录
+get_last_record() {
+    # echo "\$1: $1 \$2: $2"
+    full_record=$(sudo awk -v end_timestamp="$1" '
+    function to_timestamp(date, time) {
+        gsub(/-/, " ", date);
+        gsub(/:/, " ", time);
+        return mktime(date " " time);
+    }
+    /pear_update_stat [0-9]+ INFO\[[0-9]\]: request: {.*data.*:/ { 
+        current_timestamp = to_timestamp($1, $2);
+        if (current_timestamp <= end_timestamp) {
+            if (last_record == "" || current_timestamp > last_record_timestamp) {
+                last_record = $0
+                last_record_timestamp = current_timestamp
+            }
+        }
+    }
+    END {
+        if (last_record != "") {
+            print last_record
+        } else {    
+            print "No valid record found"
+        }
+    }
+    ' $2)
+
+    # 检查是否找到有效记录
+    if [[ $full_record == "No valid record found" ]]; then
+        exit 1
+    fi
+    echo "$full_record"
+}
+
+# 分割字符串以提取所需部分
+extract_record() {
+    full_record="$1"
+    COMMAND1="jq ."
+    COMMAND2="jq ."
+    delimiter='{"data":'
+    extracted_data="${full_record#*$delimiter}"
+    deleted_part="${full_record%"$delimiter$extracted_data"}"
+
+    if [ "1$JQ_FLAG" -eq "11" ]; then
+        COMMAND1="jq $JQ_COMMAND"
+    fi
+    if [ "1$GREP_FLAG" -eq "11" ]; then
+        COMMAND2="grep --color=auto $GREP_COMMAND"
+    fi
+    echo -e "$deleted_part\n"
+    echo "$delimiter$extracted_data" | jq -r '.data' | $COMMAND1 | $COMMAND2
+    echo -e "\n$deleted_part\n"
+}
+
+########################################################################################
+opts=$(getopt -o ht:j:g:f: -l help,time:,jq:,grep:file: -- "$@")
+eval set -- "$opts"
+while true; do
+    case "$1" in
+        -t|--time)
+            END_TIME="$2"
+            shift 2
+            ;;
+        -f|--file)
+            LOG_FILE="$2"
+            LOG_FILE_FLAG=1
+            shift 2
+            ;;
+        -j|--jq)
+            JQ_COMMAND="$2"
+            JQ_FLAG=1
+            shift 2
+            ;;
+        -g|--grep)
+            GREP_COMMAND="$2"
+            GREP_FLAG=1
+            shift 2
+            ;;
+        -h|--help)
+            cat /etc/pear/pear_log/help.txt
+            exit 0
+            shift
+            ;;
+        --) shift; break ;;
+        *) break ;;
+    esac
+done
+
+
+END_TIMESTAMP=$(time_to_timestamp)
+if [ $? -ne 0 ]; then
+    echo "时间格式无效，请使用 'YYYY-MM-DD HH:MM:SS'."
+    exit 1
+fi
+
+echo "查找日志文件中..."
+if [ "1$LOG_FILE_FLAG" -eq "11" ]; then
+    LOG_FILES="$LOG_FILE"
+else
+    LOG_FILES=$(get_log_files)
+    if [ $? -ne 0 ]; then
+        echo "未找到日志文件，请检查配置文件 /etc/pear/pear_monitor/config.json。"
+        exit 1
+    fi
+fi
+
+echo "解析日志文件中..."
+full_record=$(get_last_record "$END_TIMESTAMP" "$LOG_FILES")
+if [ $? -ne 0 ]; then
+    echo "未找到有效记录，请检查日志文件路径和时间。"
+    exit 1
+fi
+
+extract_record "$full_record"
+
+echo "日志文件路径："
+for LOG_FILE in $LOG_FILES; do
+    if [[ "${LOG_FILE:1:1}" == '/' ]]; then
+        LOG_FILE=${LOG_FILE:1}
+    fi
+    echo "$LOG_FILE"
+done
+
+########################################################################################

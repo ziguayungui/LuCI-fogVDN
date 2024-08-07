@@ -1,0 +1,1 @@
+./tencent_stop.sh

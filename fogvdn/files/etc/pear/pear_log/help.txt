@@ -1,0 +1,42 @@
+pear_log:   
+
+该脚本用于解析和美化 pear_monitor.log 中的上报信息，支持通过指定时间、使用 jq 命令过滤和 grep 过滤来查询日志记录。    
+  
+用法:
+pear_log [选项]... 
+  
+选项：
+  -h, --help            显示此帮助信息并退出。
+  -t, --time <时间>     设置日志记录的结束时间，格式为 'YYYY-MM-DD HH:MM:SS'。如果未指定，则默认为当前时间。
+  -f, --file <文件名>   指定要搜索的日志文件名。如果未指定，则默认从 /etc/pear/pear_monitor/config.json 中指定的分区目录中寻找所有存在的 pear_monitor.log。
+  -j, --jq <jq过滤器>   使用 jq 过滤器处理日志记录中的数据部分。需要 jq 工具预先安装。
+  -g, --grep <grep过滤器> 使用 grep 过滤器处理日志记录中的数据部分。
+
+功能描述:
+1. 搜索所有 pear_monitor.log 日志文件，从中查询指定时间前的最后一条上报记录，并美化为 json 格式。
+2. 如果日志文件不在默认路径下，或不是默认的文件名，则可以通过 -f 选项指定日志文件名。
+2. 在解析上报记录时，支持使用 jq 过滤器和 grep 过滤器处理数据部分。
+3. 输出包括解析内容、实际记录时间和日志文件路径。
+
+示例：
+1. 查看帮助信息:
+   pear_log -h
+ 
+2. 查询指定时间之前的最后一条记录:
+   pear_log --time '2023-01-01 12:00:00'
+ 
+3. 指定日志文件的路径和文件名:
+   pear_log --file '/pcdn_data_hdd/storage1_hdd/.pear/var/log/pear/pear_monitor.log'
+
+4. 在不知道日志文件路径的情况下，使用 -f 选项与 find 命令的组合:
+   pear_log --file  `find / -name pear_monitor.log 2>/dev/null`
+
+5. 使用 jq 过滤器处理数据部分:
+   pear_log --jq '.plugins[0]' 
+
+6. 使用 grep 过滤器查看 pearid 值:
+   pear_log --grep 'prid'
+
+注意:
+- 确保 jq 工具已经安装，以便使用 jq 过滤器功能。
+- 使用 jq 过滤器和 grep 过滤器时，确保 jq 命令和 grep 命令符合预期的过滤逻辑。
