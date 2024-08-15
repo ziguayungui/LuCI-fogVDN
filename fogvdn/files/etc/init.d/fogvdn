@@ -88,7 +88,10 @@ start_service()
 {
     config_load fogvdn
     config_get enable main enable
-    [ "$enable" == "1" ] && config_foreach run_instance instance || stop
+    if [ "$enable" != "1" ]; then 
+            return 1
+    fi
+    config_foreach run_instance instance
 }
 
 stop_service()
